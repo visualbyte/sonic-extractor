@@ -28,6 +28,7 @@
 
 ## ✨ Features
 
+- **🪟 Modern Unified Toolbar**: Seamless dark macOS title bar with centered dynamic document info (filename, size, format & resolution badges) and native keyboard shortcuts (`⌘O`, `⌘R`, `⌘S`).
 - **⚡️ Zero-Friction Workflow**: Drag and drop any video file onto the canvas, or select via the native macOS file picker.
 - **🎬 Wide Format Support**: Compatible with MP4, MOV, MKV, AVI, WebM, and all common video containers.
 - **🌊 Interactive Waveform & Scrubbing**: Live audio waveform visualization with scrubbing and instant playback transport ring.
