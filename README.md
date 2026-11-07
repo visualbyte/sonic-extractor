@@ -8,13 +8,17 @@
       <img src="https://img.shields.io/github/v/release/visualbyte/sonic-extractor?color=1487FF&label=Latest%20Release" alt="Latest Release" />
     </a>
     <img src="https://img.shields.io/badge/Platform-macOS%2014.0%2B-black" alt="Platform: macOS 14.0+" />
-    <img src="https://img.shields.io/badge/Architecture-Universal%20(arm64%20%7C%20x86__64)-blue" alt="Architecture" />
+    <img src="https://img.shields.io/badge/Architecture-Apple%20Silicon%20%7C%20Intel-blue" alt="Architecture" />
     <img src="https://img.shields.io/badge/License-Proprietary-gray" alt="License" />
   </p>
 
   <p>
-    <a href="https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor.dmg">
-      <img src="https://img.shields.io/badge/⬇%20Download-SonicExtractor.dmg%20(Universal)-1487FF?style=for-the-badge" height="42" alt="Download SonicExtractor Universal DMG" />
+    <a href="https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-AppleSilicon-arm64.dmg">
+      <img src="https://img.shields.io/badge/⬇%20Download-Apple%20Silicon%20(M1--M4)-1487FF?style=for-the-badge" height="40" alt="Download SonicExtractor Apple Silicon DMG" />
+    </a>
+    &nbsp;
+    <a href="https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-Intel-x86_64.dmg">
+      <img src="https://img.shields.io/badge/⬇%20Download-Intel%20Macs-1487FF?style=for-the-badge" height="40" alt="Download SonicExtractor Intel DMG" />
     </a>
   </p>
   <p>
@@ -56,10 +60,9 @@
 ## 📦 Installation
 
 ### 1. Download
-- **[Download SonicExtractor.dmg (Universal)](https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor.dmg)** *(Recommended: runs natively on Apple Silicon and Intel)*
-- Dedicated architecture builds:
-  - **[Apple Silicon (M1/M2/M3/M4/M5)](https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-AppleSilicon-arm64.dmg)**
-  - **[Intel (x86_64)](https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-Intel-x86_64.dmg)**
+Select the build matching your Mac architecture:
+- **[Apple Silicon DMG (M1 / M2 / M3 / M4)](https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-AppleSilicon-arm64.dmg)**
+- **[Intel Macs DMG (x86_64)](https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-Intel-x86_64.dmg)**
 
 ### 2. Install
 Open the downloaded `.dmg` and drag **AudioExtractor** into the **Applications** shortcut folder.
