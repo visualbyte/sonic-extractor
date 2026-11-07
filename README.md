@@ -8,18 +8,17 @@
       <img src="https://img.shields.io/github/v/release/visualbyte/sonic-extractor?color=1487FF&label=Latest%20Release" alt="Latest Release" />
     </a>
     <img src="https://img.shields.io/badge/Platform-macOS%2014.0%2B-black" alt="Platform: macOS 14.0+" />
-    <img src="https://img.shields.io/badge/Architecture-Apple%20Silicon%20%7C%20Intel-blue" alt="Architecture" />
+    <img src="https://img.shields.io/badge/Architecture-Universal%20(arm64%20%7C%20x86__64)-blue" alt="Architecture" />
     <img src="https://img.shields.io/badge/License-Proprietary-gray" alt="License" />
   </p>
 
   <p>
-    <a href="https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-AppleSilicon-arm64.dmg">
-      <img src="https://img.shields.io/badge/⬇%20Download-Apple%20Silicon%20(arm64)-1487FF?style=for-the-badge" height="38" alt="Download Apple Silicon" />
+    <a href="https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor.dmg">
+      <img src="https://img.shields.io/badge/⬇%20Download-SonicExtractor.dmg%20(Universal)-1487FF?style=for-the-badge" height="42" alt="Download SonicExtractor Universal DMG" />
     </a>
-    &nbsp;&nbsp;
-    <a href="https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-Intel-x86_64.dmg">
-      <img src="https://img.shields.io/badge/⬇%20Download-Intel%20(x86__64)-0055FF?style=for-the-badge" height="38" alt="Download Intel" />
-    </a>
+  </p>
+  <p>
+    <small>Runs natively on both Apple Silicon (M1/M2/M3/M4) & Intel Macs</small>
   </p>
 </div>
 
@@ -55,13 +54,34 @@
 
 ## 📦 Installation
 
-1. Download the build matching your Mac's processor:
-   - **[Download for Apple Silicon (All M-Series chips — M1, M2, M3, M4, M5 & future)](https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-AppleSilicon-arm64.dmg)**
-   - **[Download for Intel Macs (x86_64)](https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-Intel-x86_64.dmg)**
-2. Open the downloaded `.dmg` and drag **AudioExtractor** into your **Applications** folder.
-3. **First-Time Launch (macOS Gatekeeper)**:
-   - Right-click (or Control-click) `AudioExtractor` in your Applications folder and select **Open**.
-   - Click **Open** in the confirmation dialog.
+### 1. Download
+- **[Download SonicExtractor.dmg (Universal)](https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor.dmg)** *(Recommended: runs natively on Apple Silicon and Intel)*
+- Dedicated architecture builds:
+  - **[Apple Silicon (M1/M2/M3/M4/M5)](https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-AppleSilicon-arm64.dmg)**
+  - **[Intel (x86_64)](https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-Intel-x86_64.dmg)**
+
+### 2. Install
+Open the downloaded `.dmg` and drag **AudioExtractor** into the **Applications** shortcut folder.
+
+### 3. First-Time Launch (One-Time macOS Approval)
+Because SonicExtractor is an independent application distributed directly outside the Mac App Store:
+
+1. Double-click **AudioExtractor** in your Applications folder.
+2. macOS will show a security prompt:
+   > *"Apple could not verify 'AudioExtractor' is free of malware that may harm your Mac."*
+3. Click **Done** *(do NOT click "Move to Bin" / "Move to Trash")*.
+4. Open **System Settings** → **Privacy & Security**.
+5. Scroll down to the **Security** section.
+6. Under *"AudioExtractor was blocked from use because it is not from an identified developer"*, click **Open Anyway**.
+7. Enter your Touch ID or Mac administrator password, then click **Open**.
+
+> [!NOTE]
+> macOS permanently remembers your approval after this single step. You will never be asked again!
+
+For advanced users comfortable with Terminal:
+```bash
+xattr -dr com.apple.quarantine /Applications/AudioExtractor.app
+```
 
 ---
 
