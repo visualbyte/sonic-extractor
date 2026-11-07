@@ -24,11 +24,13 @@ public final class VideoPreviewPlayer: ObservableObject {
         
         let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
         timeObserver = newPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self = self else { return }
-            self.currentTime = CMTimeGetSeconds(time)
-            if self.duration > 0 && self.currentTime >= self.duration {
-                self.isPlaying = false
-                self.seek(to: 0)
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                self.currentTime = CMTimeGetSeconds(time)
+                if self.duration > 0 && self.currentTime >= self.duration {
+                    self.isPlaying = false
+                    self.seek(to: 0)
+                }
             }
         }
     }

@@ -204,37 +204,58 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     
     weak var window: NSWindow?
     var isProgrammaticResizing = false
-    var currentTargetSize: CGSize = CGSize(width: 440, height: 300)
+    var currentTargetSize: CGSize = CGSize(width: 440, height: 320)
     private var hasCenteredInitially = false
     
     func attach(to window: NSWindow, targetSize: CGSize) {
         self.window = window
         self.currentTargetSize = targetSize
         window.delegate = self
+        window.isRestorable = false
+        window.setFrameAutosaveName("")
         
-        if !hasCenteredInitially {
-            hasCenteredInitially = true
-            centerOnScreen(window, size: targetSize)
-        }
-        
-        applyLock(size: targetSize)
+        setSize(targetSize, center: !hasCenteredInitially)
+        hasCenteredInitially = true
     }
     
-    private func centerOnScreen(_ win: NSWindow, size: CGSize) {
-        if let screen = win.screen ?? NSScreen.main {
+    func setSize(_ size: CGSize, center: Bool = false) {
+        guard let win = window else { return }
+        currentTargetSize = size
+        isProgrammaticResizing = true
+        
+        win.minSize = NSSize(width: 50, height: 50)
+        win.maxSize = NSSize(width: 10000, height: 10000)
+        
+        let targetFrame: NSRect
+        if center, let screen = win.screen ?? NSScreen.main {
             let visible = screen.visibleFrame
             let x = visible.origin.x + (visible.width - size.width) / 2
             let y = visible.origin.y + (visible.height - size.height) / 2
-            win.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+            targetFrame = NSRect(x: x, y: y, width: size.width, height: size.height)
         } else {
-            win.center()
+            let currentFrame = win.frame
+            let topY = currentFrame.origin.y + currentFrame.size.height
+            let centerX = currentFrame.origin.x + (currentFrame.size.width / 2)
+            let newOrigin = CGPoint(
+                x: centerX - (size.width / 2),
+                y: topY - size.height
+            )
+            targetFrame = NSRect(origin: newOrigin, size: size)
         }
+        
+        win.setFrame(targetFrame, display: true, animate: false)
+        isProgrammaticResizing = false
+        applyLock(size: size)
     }
     
     func applyLock(size: CGSize) {
         guard let win = window else { return }
         win.styleMask.subtract([.resizable])
         win.standardWindowButton(.zoomButton)?.isEnabled = false
+        win.titleVisibility = .hidden
+        win.titlebarAppearsTransparent = true
+        win.isRestorable = false
+        win.setFrameAutosaveName("")
         win.minSize = size
         win.maxSize = size
         if let cv = win.contentView {
@@ -269,8 +290,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             context.allowsImplicitAnimation = true
             win.animator().setFrame(newFrame, display: true)
         }, completionHandler: { [weak self] in
-            self?.isProgrammaticResizing = false
-            self?.applyLock(size: size)
+            guard let self = self else { return }
+            self.isProgrammaticResizing = false
+            self.applyLock(size: size)
         })
     }
     
@@ -279,7 +301,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         if isProgrammaticResizing {
             return frameSize
         }
-        return sender.frame.size // User drags edge? Return current size -> ZERO resizing allowed!
+        return currentTargetSize // Strictly enforce target size!
     }
     
     func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
@@ -289,7 +311,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
 // MARK: - Native Window Detector via Guaranteed viewDidMoveToWindow
 final class WindowDetectorView: NSView {
-    var targetSize: CGSize = CGSize(width: 440, height: 290)
+    var targetSize: CGSize = CGSize(width: 440, height: 320)
     
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -331,8 +353,8 @@ struct ContentView: View {
     @StateObject private var playerManager = AudioPlayerManager()
     
     // Window dimensions for the two distinct states
-    private let compactSize = CGSize(width: 440, height: 300)
-    private let expandedSize = CGSize(width: 580, height: 460)
+    private let compactSize = CGSize(width: 440, height: 320)
+    private let expandedSize = CGSize(width: 580, height: 480)
     
     private var currentSize: CGSize {
         videoMetadata != nil ? expandedSize : compactSize
@@ -359,8 +381,109 @@ struct ContentView: View {
         } message: {
             Text(errorMessage ?? "An unknown error occurred.")
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openFileRequested)) { _ in
+            chooseFile()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .resetFileRequested)) { _ in
+            if videoMetadata != nil {
+                resetToNewFile()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .saveAudioRequested)) { _ in
+            if !isExtracting && extractedCacheURL != nil {
+                promptNativeSaveDialog()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenVideoFile"))) { _ in
             chooseFile()
+        }
+        .toolbar {
+            toolbarContent
+        }
+    }
+    
+    // MARK: - Native Unified Toolbar (Matching EXIF Reader)
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Button(action: chooseFile) {
+                Label("Open", systemImage: "folder")
+            }
+            .keyboardShortcut("o", modifiers: .command)
+            .help("Open video file (⌘O)")
+        }
+        
+        ToolbarItem(placement: .navigation) {
+            if videoMetadata != nil {
+                Button(action: resetToNewFile) {
+                    Label("Reset", systemImage: "arrow.counterclockwise")
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .help("Close video (⌘R)")
+            }
+        }
+        
+        ToolbarItem(placement: .principal) {
+            if let metadata = videoMetadata {
+                HStack(spacing: 8) {
+                    Text(metadata.filename)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    
+                    Text(metadata.formattedFileSize)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.textSecondary)
+                    
+                    let ext = metadata.url.pathExtension.uppercased()
+                    if !ext.isEmpty {
+                        Text(ext)
+                            .font(.system(size: 9, weight: .bold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1.5)
+                            .background(Theme.accent.opacity(0.2))
+                            .foregroundStyle(Theme.accent)
+                            .cornerRadius(3)
+                    }
+                    
+                    if metadata.resolution != .zero {
+                        Text(metadata.formattedResolution)
+                            .font(.system(size: 9, weight: .semibold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1.5)
+                            .background(Color.white.opacity(0.08))
+                            .foregroundStyle(Theme.textSecondary)
+                            .cornerRadius(3)
+                    }
+                }
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                    Text("SonicExtractor")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+        }
+        
+        ToolbarItemGroup(placement: .primaryAction) {
+            if videoMetadata != nil {
+                Button(action: promptNativeSaveDialog) {
+                    HStack(spacing: 5) {
+                        Image(systemName: showSaveConfirmation ? "checkmark" : "square.and.arrow.down")
+                            .font(.system(size: 12))
+                        Text(showSaveConfirmation ? "Saved" : "Save")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundStyle(showSaveConfirmation ? Color(red: 16/255, green: 185/255, blue: 129/255) : Theme.accent)
+                }
+                .keyboardShortcut("s", modifiers: .command)
+                .help("Save extracted audio (⌘S)")
+                .disabled(isExtracting || extractedCacheURL == nil)
+            }
         }
     }
     

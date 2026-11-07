@@ -4,21 +4,18 @@ A fast, lightweight, and native macOS application built with Swift and SwiftUI t
 
 ## Features
 
+- **Modern macOS Unified Toolbar**: Blends seamlessly into macOS with centered document title, file specifications, format & resolution badges, and native keyboard shortcuts (`⌘O`, `⌘R`, `⌘S`).
 - **Drag & Drop**: Drag any video file directly into the app window, or click to browse.
 - **Broad Video Support**: MP4, MOV, M4V, MKV, AVI, WebM, and more.
 - **Format Options**:
   - **M4A (AAC)**: High quality, compressed, ideal for iPhone/iPad/Mac, podcasts, and mobile storage.
   - **WAV**: Uncompressed 16-bit 44.1 kHz PCM, lossless studio quality for audio editors and DAWs.
 - **Video Inspection & Preview**:
-  - Automatically generates a video thumbnail preview.
+  - Automatically generates an unletterboxed 16:9 video thumbnail preview.
   - Shows file size, video resolution, duration, and detected audio tracks.
-- **Built-in Audio Player**: Listen to and scrub through your extracted audio immediately inside the app.
-- **One-Click Reveal**: Quickly jump to the newly saved audio file in Finder.
-- **Multiple Output Destinations**:
-  - Same directory as the video file.
-  - Downloads folder.
-  - Desktop.
-  - Any custom folder of your choice.
+- **Built-in Audio Player**: Listen to and scrub through your extracted audio immediately inside the app with live waveform visualization.
+- **Tactile Sound Effects**: Custom acoustic cues on video load, file ejection, and export completion.
+- **Consistent Window Geometry**: Guaranteed launch size and smooth animated transition when inspecting media.
 
 ## Installation & First-Time Launch (macOS Gatekeeper)
 
