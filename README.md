@@ -20,32 +20,57 @@ A fast, lightweight, and native macOS application built with Swift and SwiftUI t
   - Desktop.
   - Any custom folder of your choice.
 
-## Quick Launch & Install
+## Installation & First-Time Launch (macOS Gatekeeper)
 
-### 1. Launch the App Immediately
-To open the app right now:
+### Option 1: Install via DMG (Recommended)
+1. Download `SonicExtractor.dmg` (Universal binary for both Apple Silicon and Intel Macs).
+2. Double-click the DMG to open it, and drag **AudioExtractor** into the **Applications** folder shortcut.
+3. Unmount/eject the DMG.
+
+### First-Time Launch (One-Time macOS Security Approval)
+Because AudioExtractor is a standalone open-source app distributed directly outside the Mac App Store:
+
+1. Double-click **AudioExtractor** in your Applications folder.
+2. macOS will show an alert:
+   > **"Apple could not verify 'AudioExtractor' is free of malware that may harm your Mac."**
+3. Click **Done** *(do NOT click "Move to Bin" / "Move to Trash")*.
+4. Open **System Settings** $\to$ **Privacy & Security**.
+5. Scroll down to the **Security** section.
+6. Under *"AudioExtractor was blocked from use because it is not from an identified developer"*, click **Open Anyway**.
+7. Enter your Mac password or Touch ID, then click **Open** when prompted.
+
+> [!NOTE]
+> You only need to do this once. macOS permanently remembers the approval and AudioExtractor will open normally from then on.
+
+For power users who prefer Terminal:
 ```bash
-open "/Users/visualbyte/Downloads/ai-projects/mac audio app/build/AudioExtractor.app"
+xattr -dr com.apple.quarantine /Applications/AudioExtractor.app
 ```
 
-### 2. Install to Applications Folder
-To install it permanently into your `/Applications` directory so it shows up in Launchpad and Spotlight:
-```bash
-cp -R "/Users/visualbyte/Downloads/ai-projects/mac audio app/build/AudioExtractor.app" /Applications/
-```
+---
 
-### 3. Rebuild from Source
-If you ever make changes to the source code:
+## Building from Source
+
+AudioExtractor builds as a **Universal Fat Binary** (`arm64` + `x86_64`), running natively on both Apple Silicon and Intel Macs with zero emulation overhead.
+
+### 1. Build Universal App Bundle
 ```bash
 ./build.sh
 ```
-Or to build and auto-install to `/Applications`:
-```bash
-./build.sh --install
-```
+*(Optionally specify architecture: `./build.sh arm64` or `./build.sh x86_64`)*
 
-## Architecture
+### 2. Build Distributable DMG
+```bash
+./scripts/create_dmg.sh
+```
+This generates a compressed, signed `dist/SonicExtractor.dmg` containing the application, `/Applications` drag-and-drop symlink, and `First-Time Launch Guide.txt`.
+
+---
+
+## Architecture & Tech Stack
 - **Language**: Swift 6
 - **UI Framework**: SwiftUI
 - **Media Engine**: AVFoundation (`AVAssetExportSession`, `AVAssetReader`, `AVAssetWriter`, `AVAudioPlayer`)
+- **Binary Architecture**: Universal 2 (`arm64` Apple Silicon + `x86_64` Intel) via `lipo`
+- **Minimum Target**: macOS 14.0 (Sonoma) and macOS 15.0+ (Sequoia)
 - **App Bundle**: Standard macOS `.app` bundle with high-resolution retina iconset (`.icns`) and ad-hoc code signature.
