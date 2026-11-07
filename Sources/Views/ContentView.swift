@@ -236,10 +236,16 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             let currentFrame = win.frame
             let topY = currentFrame.origin.y + currentFrame.size.height
             let centerX = currentFrame.origin.x + (currentFrame.size.width / 2)
-            let newOrigin = CGPoint(
+            var newOrigin = CGPoint(
                 x: centerX - (size.width / 2),
                 y: topY - size.height
             )
+            if let screen = win.screen ?? NSScreen.main {
+                let visibleMinY = screen.visibleFrame.origin.y
+                if newOrigin.y < visibleMinY {
+                    newOrigin.y = visibleMinY
+                }
+            }
             targetFrame = NSRect(origin: newOrigin, size: size)
         }
         
@@ -264,35 +270,46 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         win.resetCursorRects()
     }
     
-    func animateTo(size: CGSize) {
+    func animateTo(size: CGSize, duration: TimeInterval = 0.35) {
         guard let win = window else { return }
-        if win.frame.size == size { return }
+        if abs(win.frame.size.width - size.width) < 1 && abs(win.frame.size.height - size.height) < 1 {
+            applyLock(size: size)
+            return
+        }
         currentTargetSize = size
         
         let currentFrame = win.frame
         let topY = currentFrame.origin.y + currentFrame.size.height
         let centerX = currentFrame.origin.x + (currentFrame.size.width / 2)
         
-        let newOrigin = CGPoint(
+        var newOrigin = CGPoint(
             x: centerX - (size.width / 2),
             y: topY - size.height
         )
+        if let screen = win.screen ?? NSScreen.main {
+            let visibleMinY = screen.visibleFrame.origin.y
+            if newOrigin.y < visibleMinY {
+                newOrigin.y = visibleMinY
+            }
+        }
         let newFrame = CGRect(origin: newOrigin, size: size)
         
         // Temporarily allow animation bounds
-        win.minSize = NSSize(width: min(currentFrame.width, size.width) - 50, height: min(currentFrame.height, size.height) - 50)
-        win.maxSize = NSSize(width: max(currentFrame.width, size.width) + 50, height: max(currentFrame.height, size.height) + 50)
+        win.minSize = NSSize(width: max(50, min(currentFrame.width, size.width) - 50), height: max(50, min(currentFrame.height, size.height) - 50))
+        win.maxSize = NSSize(width: max(currentFrame.width, size.width) + 100, height: max(currentFrame.height, size.height) + 100)
         
         isProgrammaticResizing = true
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.32
+            context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             context.allowsImplicitAnimation = true
             win.animator().setFrame(newFrame, display: true)
         }, completionHandler: { [weak self] in
             guard let self = self else { return }
-            self.isProgrammaticResizing = false
-            self.applyLock(size: size)
+            if self.currentTargetSize == size {
+                self.isProgrammaticResizing = false
+                self.applyLock(size: size)
+            }
         })
     }
     
@@ -331,6 +348,7 @@ struct WindowAccessor: NSViewRepresentable {
     
     func updateNSView(_ nsView: WindowDetectorView, context: Context) {
         nsView.targetSize = targetSize
+        WindowCoordinator.shared.currentTargetSize = targetSize
     }
 }
 
@@ -352,12 +370,14 @@ struct ContentView: View {
     
     @StateObject private var playerManager = AudioPlayerManager()
     
-    // Window dimensions for the two distinct states
+    // Window dimensions for the distinct lifecycle states
     private let compactSize = CGSize(width: 440, height: 320)
+    private let extractingSize = CGSize(width: 580, height: 260)
     private let expandedSize = CGSize(width: 580, height: 480)
     
     private var currentSize: CGSize {
-        videoMetadata != nil ? expandedSize : compactSize
+        guard videoMetadata != nil else { return compactSize }
+        return isExtracting ? extractingSize : expandedSize
     }
     
     var body: some View {
@@ -470,7 +490,7 @@ struct ContentView: View {
         }
         
         ToolbarItemGroup(placement: .primaryAction) {
-            if videoMetadata != nil {
+            if videoMetadata != nil && !isExtracting {
                 Button(action: promptNativeSaveDialog) {
                     HStack(spacing: 5) {
                         Image(systemName: showSaveConfirmation ? "checkmark" : "square.and.arrow.down")
@@ -482,7 +502,7 @@ struct ContentView: View {
                 }
                 .keyboardShortcut("s", modifiers: .command)
                 .help("Save extracted audio (⌘S)")
-                .disabled(isExtracting || extractedCacheURL == nil)
+                .disabled(extractedCacheURL == nil)
             }
         }
     }
@@ -640,23 +660,26 @@ struct ContentView: View {
             Divider()
                 .overlay(Theme.divider)
             
-            // MIDDLE STAGE: Audio Waveform & Transport (Strictly locked height so it never shifts or scales)
-            VStack(spacing: 20) {
-                Spacer()
-                
-                if isExtracting {
-                    VStack(spacing: 12) {
-                        ProgressView(value: extractionProgress, total: 1.0)
-                            .progressViewStyle(.linear)
-                            .frame(width: 280)
-                            .tint(Theme.accent)
-                        
-                        Text("Extracting audio track (\(Int(extractionProgress * 100))%)...")
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                    .frame(height: 120)
-                } else {
+            if isExtracting {
+                // EXTRACTION IN-PROGRESS STATE: Compact window height (~260), CTA & format text hidden
+                VStack(spacing: 12) {
+                    ProgressView(value: extractionProgress, total: 1.0)
+                        .progressViewStyle(.linear)
+                        .frame(width: 280)
+                        .tint(Theme.accent)
+                        .animation(.linear(duration: 0.1), value: extractionProgress)
+                    
+                    Text("Extracting audio track (\(Int(extractionProgress * 100))%)...")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
+            } else {
+                // AUDIO READY STATE: Audio Waveform & Transport Player + Bottom Save CTA
+                VStack(spacing: 20) {
+                    Spacer()
+                    
                     // 1. Waveform visualizer
                     WaveformVisualizerView(
                         audioURL: extractedCacheURL,
@@ -700,32 +723,34 @@ struct ContentView: View {
                     Text("\(formatSeconds(playerManager.currentTime)) / \(formatSeconds(playerManager.duration))")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(Theme.textSecondary)
+                    
+                    Spacer()
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
                 
-                Spacer()
+                // BOTTOM SECTION: Primary Action Button & Muted Format Info
+                VStack(spacing: 8) {
+                    PrimaryActionButton(
+                        title: showSaveConfirmation ? "Audio Saved!" : "Save Audio",
+                        icon: showSaveConfirmation ? "checkmark" : nil,
+                        width: 196,
+                        height: 38,
+                        isEnabled: extractedCacheURL != nil,
+                        isSuccess: showSaveConfirmation,
+                        action: promptNativeSaveDialog
+                    )
+                    .keyboardShortcut(.defaultAction)
+                    
+                    // Muted format label
+                    Text("M4A (AAC)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Theme.textTertiary)
+                        .padding(.bottom, 6)
+                }
+                .padding(.bottom, 22)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            
-            // BOTTOM SECTION: Primary Action Button & Muted Format Info
-            VStack(spacing: 8) {
-                PrimaryActionButton(
-                    title: showSaveConfirmation ? "Audio Saved!" : "Save Audio",
-                    icon: showSaveConfirmation ? "checkmark" : nil,
-                    width: 196,
-                    height: 38,
-                    isEnabled: !isExtracting && extractedCacheURL != nil,
-                    isSuccess: showSaveConfirmation,
-                    action: promptNativeSaveDialog
-                )
-                .keyboardShortcut(.defaultAction)
-                
-                // Muted format label
-                Text("M4A (AAC)")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Theme.textTertiary)
-                    .padding(.bottom, 6)
-            }
-            .padding(.bottom, 22)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -761,15 +786,15 @@ struct ContentView: View {
                 let metadata = try await AudioExtractorEngine.shared.inspectVideo(url: url)
                 await MainActor.run {
                     AppSound.playPop()
-                    WindowCoordinator.shared.animateTo(size: expandedSize)
-                    withAnimation(.easeInOut(duration: 0.3)) {
+                    WindowCoordinator.shared.animateTo(size: extractingSize, duration: 0.32)
+                    withAnimation(.easeInOut(duration: 0.32)) {
                         self.videoMetadata = metadata
                     }
                 }
                 extractToCache(metadata: metadata, format: selectedFormat)
             } catch {
                 await MainActor.run {
-                    WindowCoordinator.shared.animateTo(size: compactSize)
+                    WindowCoordinator.shared.animateTo(size: compactSize, duration: 0.3)
                     withAnimation(.easeInOut(duration: 0.3)) {
                         self.videoMetadata = nil
                     }
@@ -803,12 +828,19 @@ struct ContentView: View {
                 
                 await MainActor.run {
                     self.extractedCacheURL = targetCacheURL
-                    self.isExtracting = false
+                    WindowCoordinator.shared.animateTo(size: self.expandedSize, duration: 0.36)
+                    withAnimation(.easeInOut(duration: 0.36)) {
+                        self.isExtracting = false
+                    }
                     self.playerManager.load(url: targetCacheURL)
                 }
             } catch {
                 await MainActor.run {
                     self.isExtracting = false
+                    WindowCoordinator.shared.animateTo(size: self.compactSize, duration: 0.3)
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        self.videoMetadata = nil
+                    }
                     self.errorMessage = "Failed to extract audio: \(error.localizedDescription)"
                     self.showErrorAlert = true
                 }
@@ -861,12 +893,13 @@ struct ContentView: View {
     }
     
     private func resetToNewFile() {
+        AudioExtractorEngine.shared.cancel()
         AppSound.playRemove()
         isHoveringEject = false
         playerManager.stop()
         saveConfirmationTask?.cancel()
         showSaveConfirmation = false
-        WindowCoordinator.shared.animateTo(size: compactSize)
+        WindowCoordinator.shared.animateTo(size: compactSize, duration: 0.3)
         withAnimation(.easeInOut(duration: 0.3)) {
             videoMetadata = nil
             extractedCacheURL = nil
