@@ -3,37 +3,54 @@ set -e
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="AudioExtractor"
-DMG_NAME="SonicExtractor"
+DMG_BASE_NAME="SonicExtractor"
 BUILD_DIR="$PROJECT_DIR/build"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 DMG_DIR="$BUILD_DIR/dmg_staging"
-OUTPUT_DMG="$PROJECT_DIR/dist/$DMG_NAME.dmg"
+DIST_DIR="$PROJECT_DIR/dist"
 
-echo "=== Creating DMG for $DMG_NAME ==="
+create_dmg() {
+    local ARCH="$1"
+    local DMG_OUTPUT_NAME="$2"
+    local OUTPUT_DMG="$DIST_DIR/$DMG_OUTPUT_NAME"
 
-# 1. Rebuild app to ensure latest binary
-bash "$PROJECT_DIR/build.sh"
+    echo "=== Building & Packaging DMG for $ARCH ($DMG_OUTPUT_NAME) ==="
+    bash "$PROJECT_DIR/build.sh" "$ARCH"
 
-# 2. Setup staging folder
-rm -rf "$DMG_DIR" "$PROJECT_DIR/dist"
-mkdir -p "$DMG_DIR" "$PROJECT_DIR/dist"
+    rm -rf "$DMG_DIR"
+    mkdir -p "$DMG_DIR" "$DIST_DIR"
 
-echo "-> Staging application and Applications symlink..."
-cp -R "$APP_BUNDLE" "$DMG_DIR/"
-ln -s /Applications "$DMG_DIR/Applications"
+    echo "-> Staging application and Applications symlink..."
+    cp -R "$APP_BUNDLE" "$DMG_DIR/"
+    ln -s /Applications "$DMG_DIR/Applications"
 
-# 3. Create compressed read-only DMG
-echo "-> Creating compressed DMG with hdiutil..."
-hdiutil create \
-    -volname "$DMG_NAME" \
-    -srcfolder "$DMG_DIR" \
-    -ov \
-    -format UDZO \
-    "$OUTPUT_DMG"
+    echo "-> Creating compressed DMG with hdiutil..."
+    rm -f "$OUTPUT_DMG"
+    hdiutil create \
+        -volname "$DMG_BASE_NAME" \
+        -srcfolder "$DMG_DIR" \
+        -ov \
+        -format UDZO \
+        "$OUTPUT_DMG"
 
-# Clean staging
-rm -rf "$DMG_DIR"
+    rm -rf "$DMG_DIR"
+    echo "=== DMG Created: $OUTPUT_DMG ==="
+    ls -lh "$OUTPUT_DMG"
+}
 
-echo "=== DMG Created Successfully! ==="
-echo "Distributable DMG: $OUTPUT_DMG"
-ls -lh "$OUTPUT_DMG"
+ARCH_TARGET="${1:-all}"
+
+if [ "$ARCH_TARGET" = "arm64" ]; then
+    create_dmg "arm64" "${DMG_BASE_NAME}-AppleSilicon-arm64.dmg"
+elif [ "$ARCH_TARGET" = "x86_64" ]; then
+    create_dmg "x86_64" "${DMG_BASE_NAME}-Intel-x86_64.dmg"
+elif [ "$ARCH_TARGET" = "all" ]; then
+    create_dmg "arm64" "${DMG_BASE_NAME}-AppleSilicon-arm64.dmg"
+    create_dmg "x86_64" "${DMG_BASE_NAME}-Intel-x86_64.dmg"
+else
+    echo "Usage: ./scripts/create_dmg.sh [arm64|x86_64|all]"
+    exit 1
+fi
+
+echo "=== All packaging complete in $DIST_DIR ==="
+ls -lh "$DIST_DIR"
