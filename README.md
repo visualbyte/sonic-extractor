@@ -8,13 +8,17 @@
       <img src="https://img.shields.io/github/v/release/visualbyte/sonic-extractor?color=1487FF&label=Latest%20Release" alt="Latest Release" />
     </a>
     <img src="https://img.shields.io/badge/Platform-macOS%2014.0%2B-black" alt="Platform: macOS 14.0+" />
-    <img src="https://img.shields.io/badge/Architecture-Universal-blue" alt="Architecture" />
+    <img src="https://img.shields.io/badge/Architecture-Apple%20Silicon%20%7C%20Intel-blue" alt="Architecture" />
     <img src="https://img.shields.io/badge/License-Proprietary-gray" alt="License" />
   </p>
 
   <p>
-    <a href="https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor.dmg">
-      <img src="https://img.shields.io/badge/⬇%20Download-SonicExtractor.dmg-1487FF?style=for-the-badge" height="38" alt="Download SonicExtractor" />
+    <a href="https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-AppleSilicon-arm64.dmg">
+      <img src="https://img.shields.io/badge/⬇%20Download-Apple%20Silicon%20(arm64)-1487FF?style=for-the-badge" height="38" alt="Download Apple Silicon" />
+    </a>
+    &nbsp;&nbsp;
+    <a href="https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-Intel-x86_64.dmg">
+      <img src="https://img.shields.io/badge/⬇%20Download-Intel%20(x86__64)-0055FF?style=for-the-badge" height="38" alt="Download Intel" />
     </a>
   </p>
 </div>
@@ -51,8 +55,10 @@
 
 ## 📦 Installation
 
-1. Download the latest **[SonicExtractor.dmg](https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor.dmg)**.
-2. Open the disk image and drag **AudioExtractor** into your **Applications** folder.
+1. Download the build matching your Mac's processor:
+   - **[Download for Apple Silicon (All M-Series chips — M1, M2, M3, M4, M5 & future)](https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-AppleSilicon-arm64.dmg)**
+   - **[Download for Intel Macs (x86_64)](https://github.com/visualbyte/sonic-extractor/releases/latest/download/SonicExtractor-Intel-x86_64.dmg)**
+2. Open the downloaded `.dmg` and drag **AudioExtractor** into your **Applications** folder.
 3. **First-Time Launch (macOS Gatekeeper)**:
    - Right-click (or Control-click) `AudioExtractor` in your Applications folder and select **Open**.
    - Click **Open** in the confirmation dialog.
@@ -62,7 +68,7 @@
 ## 💻 System Requirements
 
 - **Operating System**: macOS 14.0 (Sonoma) or macOS 15.0 (Sequoia) and later.
-- **Hardware**: Apple Silicon (M1/M2/M3/M4) or Intel Mac.
+- **Hardware**: Apple Silicon (All M-Series chips) or Intel Mac (x86_64).
 
 ---
 
