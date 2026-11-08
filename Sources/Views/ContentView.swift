@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import QuartzCore
 import UniformTypeIdentifiers
 
 // MARK: - Native Persistent Custom Cursor View
@@ -204,7 +205,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     
     weak var window: NSWindow?
     var isProgrammaticResizing = false
-    var currentTargetSize: CGSize = CGSize(width: 440, height: 320)
+    var currentTargetSize: CGSize = CGSize(width: 440, height: 370)
     private var hasCenteredInitially = false
     
     func attach(to window: NSWindow, targetSize: CGSize) {
@@ -213,6 +214,11 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         window.delegate = self
         window.isRestorable = false
         window.setFrameAutosaveName("")
+        window.styleMask.subtract([.resizable])
+        window.standardWindowButton(.zoomButton)?.isEnabled = false
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.contentView?.layerContentsPlacement = .topLeft
         
         setSize(targetSize, center: !hasCenteredInitially)
         hasCenteredInitially = true
@@ -222,9 +228,6 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         guard let win = window else { return }
         currentTargetSize = size
         isProgrammaticResizing = true
-        
-        win.minSize = NSSize(width: 50, height: 50)
-        win.maxSize = NSSize(width: 10000, height: 10000)
         
         let targetFrame: NSRect
         if center, let screen = win.screen ?? NSScreen.main {
@@ -251,32 +254,15 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         
         win.setFrame(targetFrame, display: true, animate: false)
         isProgrammaticResizing = false
-        applyLock(size: size)
     }
     
-    func applyLock(size: CGSize) {
+    func animateTo(size: CGSize, duration: TimeInterval = 0.34) {
         guard let win = window else { return }
-        win.styleMask.subtract([.resizable])
-        win.standardWindowButton(.zoomButton)?.isEnabled = false
-        win.titleVisibility = .hidden
-        win.titlebarAppearsTransparent = true
-        win.isRestorable = false
-        win.setFrameAutosaveName("")
-        win.minSize = size
-        win.maxSize = size
-        if let cv = win.contentView {
-            win.invalidateCursorRects(for: cv)
-        }
-        win.resetCursorRects()
-    }
-    
-    func animateTo(size: CGSize, duration: TimeInterval = 0.35) {
-        guard let win = window else { return }
-        if abs(win.frame.size.width - size.width) < 1 && abs(win.frame.size.height - size.height) < 1 {
-            applyLock(size: size)
+        currentTargetSize = size
+        
+        if abs(win.frame.size.width - size.width) < 0.5 && abs(win.frame.size.height - size.height) < 0.5 {
             return
         }
-        currentTargetSize = size
         
         let currentFrame = win.frame
         let topY = currentFrame.origin.y + currentFrame.size.height
@@ -292,24 +278,18 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 newOrigin.y = visibleMinY
             }
         }
-        let newFrame = CGRect(origin: newOrigin, size: size)
+        let targetFrame = NSRect(origin: newOrigin, size: size)
         
-        // Temporarily allow animation bounds
-        win.minSize = NSSize(width: max(50, min(currentFrame.width, size.width) - 50), height: max(50, min(currentFrame.height, size.height) - 50))
-        win.maxSize = NSSize(width: max(currentFrame.width, size.width) + 100, height: max(currentFrame.height, size.height) + 100)
-        
+        // Animate the window with the exact same duration and easing curve the
+        // SwiftUI content transition uses, so the two never drift apart.
         isProgrammaticResizing = true
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             context.allowsImplicitAnimation = true
-            win.animator().setFrame(newFrame, display: true)
+            win.animator().setFrame(targetFrame, display: true)
         }, completionHandler: { [weak self] in
-            guard let self = self else { return }
-            if self.currentTargetSize == size {
-                self.isProgrammaticResizing = false
-                self.applyLock(size: size)
-            }
+            self?.isProgrammaticResizing = false
         })
     }
     
@@ -328,7 +308,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
 // MARK: - Native Window Detector via Guaranteed viewDidMoveToWindow
 final class WindowDetectorView: NSView {
-    var targetSize: CGSize = CGSize(width: 440, height: 320)
+    var targetSize: CGSize = CGSize(width: 440, height: 370)
     
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -358,6 +338,7 @@ struct ContentView: View {
     @State private var isExtracting: Bool = false
     @State private var selectedFormat: AudioFormat = .m4a
     @State private var extractedCacheURL: URL?
+    @State private var waveformSamples: [CGFloat] = []
     @State private var savedURL: URL?
     @State private var isTargeted: Bool = false
     @State private var errorMessage: String?
@@ -367,13 +348,24 @@ struct ContentView: View {
     @State private var isHoveringSave: Bool = false
     @State private var showSaveConfirmation: Bool = false
     @State private var saveConfirmationTask: Task<Void, Never>? = nil
+    @State private var studioShownAt: Date? = nil
+    @State private var studioVisible: Bool = false
     
     @StateObject private var playerManager = AudioPlayerManager()
     
-    // Window dimensions for the distinct lifecycle states
-    private let compactSize = CGSize(width: 440, height: 320)
-    private let extractingSize = CGSize(width: 580, height: 260)
+    // Window dimensions for the three lifecycle states.
+    //  drop zone   440×370  small, near-square
+    //  extracting  580×370  same height as the drop zone, studio width
+    //  studio      580×480  height expands once the player is ready
+    private let compactSize = CGSize(width: 440, height: 370)
+    private let extractingSize = CGSize(width: 580, height: 370)
     private let expandedSize = CGSize(width: 580, height: 480)
+    
+    // One shared timing for the window resize and the SwiftUI content swap, so
+    // the frame and the views animate in lock-step instead of stepping on
+    // each other.
+    private let transitionDuration: TimeInterval = 0.34
+    private var transitionAnimation: Animation { .easeInOut(duration: transitionDuration) }
     
     private var currentSize: CGSize {
         guard videoMetadata != nil else { return compactSize }
@@ -381,18 +373,30 @@ struct ContentView: View {
     }
     
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             Theme.bg.ignoresSafeArea()
+            
+            // Both states stay mounted and cross-fade through explicit opacity
+            // values. Conditional `if/else` + `.transition` was swapping the
+            // views instantly, which is what made the layout look like it was
+            // jumping.
+            dropZoneView
+                .opacity(studioVisible ? 0 : 1)
+                .allowsHitTesting(!studioVisible)
+                .animation(transitionAnimation, value: studioVisible)
             
             if let metadata = videoMetadata {
                 videoLoadedWorkspace(metadata: metadata)
-                    .transition(.opacity)
-            } else {
-                dropZoneView
-                    .transition(.opacity)
+                    .opacity(studioVisible ? 1 : 0)
+                    .allowsHitTesting(studioVisible)
+                    .animation(transitionAnimation, value: studioVisible)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // `minHeight: 0` keeps the window's minimum size decoupled from the
+        // (tall) studio layout. Without it, `.windowResizability(.contentSize)`
+        // forces the window to snap to the new content height instead of
+        // letting our coordinated animation resize it.
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
         .background(Theme.bg)
         .background(WindowAccessor(targetSize: currentSize))
         .preferredColorScheme(.dark)
@@ -434,76 +438,48 @@ struct ContentView: View {
         }
         
         ToolbarItem(placement: .navigation) {
-            if videoMetadata != nil {
-                Button(action: resetToNewFile) {
-                    Label("Reset", systemImage: "arrow.counterclockwise")
-                }
-                .keyboardShortcut("r", modifiers: .command)
-                .help("Close video (⌘R)")
+            Button(action: resetToNewFile) {
+                Label("Reset", systemImage: "arrow.counterclockwise")
             }
+            .keyboardShortcut("r", modifiers: .command)
+            .help("Close video (⌘R)")
+            // Keep the item mounted so the toolbar never re-lays-out (and the
+            // centered title never shifts) when a video is loaded or closed.
+            .opacity(videoMetadata != nil ? 1 : 0)
+            .disabled(videoMetadata == nil)
         }
         
         ToolbarItem(placement: .principal) {
-            if let metadata = videoMetadata {
-                HStack(spacing: 8) {
-                    Text(metadata.filename)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.textPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    
-                    Text(metadata.formattedFileSize)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.textSecondary)
-                    
-                    let ext = metadata.url.pathExtension.uppercased()
-                    if !ext.isEmpty {
-                        Text(ext)
-                            .font(.system(size: 9, weight: .bold))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1.5)
-                            .background(Theme.accent.opacity(0.2))
-                            .foregroundStyle(Theme.accent)
-                            .cornerRadius(3)
-                    }
-                    
-                    if metadata.resolution != .zero {
-                        Text(metadata.formattedResolution)
-                            .font(.system(size: 9, weight: .semibold))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1.5)
-                            .background(Color.white.opacity(0.08))
-                            .foregroundStyle(Theme.textSecondary)
-                            .cornerRadius(3)
-                    }
-                }
-            } else {
-                HStack(spacing: 6) {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                    Text("SonicExtractor")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.textSecondary)
-                }
+            // Keep the app identity pinned across the drop zone, extraction and
+            // studio states. The current file's details already live in the
+            // studio header, so the toolbar never needs to change.
+            HStack(spacing: 6) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                Text("SonicExtractor")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.textSecondary)
             }
         }
         
         ToolbarItemGroup(placement: .primaryAction) {
-            if videoMetadata != nil && !isExtracting {
-                Button(action: promptNativeSaveDialog) {
-                    HStack(spacing: 5) {
-                        Image(systemName: showSaveConfirmation ? "checkmark" : "square.and.arrow.down")
-                            .font(.system(size: 12))
-                        Text(showSaveConfirmation ? "Saved" : "Save")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .foregroundStyle(showSaveConfirmation ? Color(red: 16/255, green: 185/255, blue: 129/255) : Theme.accent)
+            Button(action: promptNativeSaveDialog) {
+                HStack(spacing: 5) {
+                    Image(systemName: showSaveConfirmation ? "checkmark" : "square.and.arrow.down")
+                        .font(.system(size: 12))
+                    Text(showSaveConfirmation ? "Saved" : "Save")
+                        .font(.system(size: 12, weight: .medium))
                 }
-                .keyboardShortcut("s", modifiers: .command)
-                .help("Save extracted audio (⌘S)")
-                .disabled(extractedCacheURL == nil)
+                .foregroundStyle(
+                    showSaveConfirmation ? Color(red: 16/255, green: 185/255, blue: 129/255) :
+                    (isExtracting ? Theme.textTertiary : Theme.accent)
+                )
             }
+            .keyboardShortcut("s", modifiers: .command)
+            .help("Save extracted audio (⌘S)")
+            .opacity(videoMetadata != nil && !isExtracting ? 1 : 0)
+            .disabled(videoMetadata == nil || isExtracting || extractedCacheURL == nil)
         }
     }
     
@@ -512,17 +488,17 @@ struct ContentView: View {
         VStack(spacing: 0) {
             Spacer()
             
-            // 1. Film Strip Icon (Fixed container bounds so height never shifts on drag)
+            // 1. Film Strip Icon
             ZStack {
                 Image(systemName: "film")
-                    .font(.system(size: 42, weight: .regular))
+                    .font(.system(size: 38, weight: .regular))
                     .foregroundStyle(isTargeted ? Theme.accent : Color.white)
                     .scaleEffect(isTargeted ? 1.08 : 1.0)
             }
-            .frame(width: 56, height: 56)
+            .frame(width: 48, height: 48)
             .animation(.easeInOut(duration: 0.15), value: isTargeted)
             
-            Spacer().frame(height: 18)
+            Spacer().frame(height: 26)
             
             // 2. Headline
             Text("Drag and drop video here...")
@@ -531,29 +507,30 @@ struct ContentView: View {
             
             Spacer().frame(height: 7)
             
-            // 3. Subtitle (Exact 2-line phrasing from mockup)
-            Text("Supports MP4, MOV, MKV, AVI, and most famous\nvideo formats")
-                .font(.system(size: 12, weight: .regular))
+            // 3. Subtitle
+            Text("Supports MP4, MOV, MKV, AVI, and most famous video formats")
+                .font(.system(size: 11, weight: .regular))
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
+                .frame(maxWidth: 300)
             
-            Spacer().frame(height: 22)
+            Spacer().frame(height: 28)
             
             // 4. "OR" Separator
             Text("OR")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(Color(white: 0.45))
                 .tracking(0.5)
             
-            Spacer().frame(height: 20)
+            Spacer().frame(height: 16)
             
             // 5. Choose Video File Button
             PrimaryActionButton(
                 title: "Choose Video File...",
                 icon: "folder.fill",
-                width: 236,
-                height: 40,
+                width: 250,
+                height: 38,
                 action: chooseFile
             )
             
@@ -575,7 +552,7 @@ struct ContentView: View {
     // MARK: - Video Loaded State: Expanded Audio Studio
     private func videoLoadedWorkspace(metadata: VideoMetadata) -> some View {
         VStack(spacing: 0) {
-            // TOP BAR: Selected File Header (entire top section is highlighted and clickable with persistent close cursor)
+            // TOP BAR: Selected File Header (Strictly pinned to the top of the window, fixed height: 102)
             ZStack {
                 // Background highlight spanning the full top section down to the divider
                 (isHoveringEject ? Color.white.opacity(0.05) : Color.clear)
@@ -653,106 +630,123 @@ struct ContentView: View {
                     }
                 )
             }
+            .frame(height: 102)
             .frame(maxWidth: .infinity)
             .clipped()
             
             // Thin horizontal divider (#222222)
             Divider()
                 .overlay(Theme.divider)
+                .frame(height: 1)
             
-            if isExtracting {
-                // EXTRACTION IN-PROGRESS STATE: Compact window height (~260), CTA & format text hidden
-                VStack(spacing: 12) {
-                    ProgressView(value: extractionProgress, total: 1.0)
-                        .progressViewStyle(.linear)
-                        .frame(width: 280)
-                        .tint(Theme.accent)
-                        .animation(.linear(duration: 0.1), value: extractionProgress)
-                    
-                    Text("Extracting audio track (\(Int(extractionProgress * 100))%)...")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Theme.textSecondary)
-                }
+            // 3. DYNAMIC CONTENT AREA
+            // A transparent base owns the layout height, so the hidden player
+            // (which is taller than the extracting window) can't push the
+            // progress indicator around. Both states are overlays and cross-fade
+            // in place.
+            Color.clear
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .transition(.opacity)
-            } else {
-                // AUDIO READY STATE: Audio Waveform & Transport Player + Bottom Save CTA
-                VStack(spacing: 20) {
-                    Spacer()
-                    
-                    // 1. Waveform visualizer
-                    WaveformVisualizerView(
-                        audioURL: extractedCacheURL,
-                        progress: playerManager.duration > 0 ? (playerManager.currentTime / playerManager.duration) : 0.0
-                    ) { targetPercent in
-                        playerManager.seek(to: targetPercent * playerManager.duration)
-                    }
-                    .frame(height: 52)
-                    .padding(.horizontal, 24)
-                    
-                    // 2. Play/Pause Button with #3D65AB Blue Accent Ring
-                    ZStack {
-                        Circle()
-                            .fill(isHoveringPlay ? Color.white.opacity(0.08) : Color.black.opacity(0.4))
-                            .frame(width: 52, height: 52)
+                .overlay(alignment: .top) {
+                    // Audio Studio Ready: player and action controls
+                    VStack(spacing: 0) {
+                        // Waveform Visualizer
+                        WaveformVisualizerView(
+                            audioURL: extractedCacheURL,
+                            externalSamples: waveformSamples,
+                            progress: playerManager.duration > 0 ? (playerManager.currentTime / playerManager.duration) : 0.0
+                        ) { targetPercent in
+                            playerManager.seek(to: targetPercent * playerManager.duration)
+                        }
+                        .frame(height: 52)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 28)
                         
-                        Circle()
-                            .stroke(Theme.playRing, lineWidth: 2)
-                            .frame(width: 52, height: 52)
-                        
-                        Image(systemName: playerManager.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(Color.white)
-                            .offset(x: playerManager.isPlaying ? 0 : 1.5)
-                        
-                        CustomCursorArea(
-                            cursor: .pointingHand,
-                            onHover: { hovering in
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    isHoveringPlay = hovering
+                        // Play/Pause Button
+                        ZStack {
+                            Circle()
+                                .fill(isHoveringPlay ? Color.white.opacity(0.08) : Color.black.opacity(0.4))
+                                .frame(width: 52, height: 52)
+                            
+                            Circle()
+                                .stroke(Theme.playRing, lineWidth: 2)
+                                .frame(width: 52, height: 52)
+                            
+                            Image(systemName: playerManager.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(Color.white)
+                                .offset(x: playerManager.isPlaying ? 0 : 1.5)
+                            
+                            CustomCursorArea(
+                                cursor: .pointingHand,
+                                onHover: { hovering in
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        isHoveringPlay = hovering
+                                    }
+                                },
+                                onClick: {
+                                    playerManager.togglePlayPause()
                                 }
-                            },
-                            onClick: {
-                                playerManager.togglePlayPause()
-                            }
+                            )
+                        }
+                        .frame(width: 52, height: 52)
+                        .padding(.top, 18)
+                        
+                        // Monospaced Timecode
+                        Text("\(formatSeconds(playerManager.currentTime)) / \(formatSeconds(playerManager.duration))")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Theme.textSecondary)
+                            .padding(.top, 12)
+                        
+                        // Save CTA Button
+                        PrimaryActionButton(
+                            title: showSaveConfirmation ? "Audio Saved!" : "Save Audio",
+                            icon: showSaveConfirmation ? "checkmark" : nil,
+                            width: 196,
+                            height: 38,
+                            isEnabled: extractedCacheURL != nil,
+                            isSuccess: showSaveConfirmation,
+                            action: promptNativeSaveDialog
                         )
+                        .keyboardShortcut(.defaultAction)
+                        // Deliberately larger gap than the spacing inside the
+                        // transport group, so the export section reads as a
+                        // separate block (law of proximity).
+                        .padding(.top, 44)
+                        
+                        // Muted Format Label
+                        Text("M4A (AAC)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.textTertiary)
+                            .padding(.top, 8)
+                        
+                        Spacer(minLength: 0)
                     }
-                    .frame(width: 52, height: 52)
-                    
-                    // 3. Subtle Monospaced Timecode
-                    Text("\(formatSeconds(playerManager.currentTime)) / \(formatSeconds(playerManager.duration))")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Theme.textSecondary)
-                    
-                    Spacer()
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .frame(height: 376)
+                    .opacity(isExtracting ? 0 : 1)
+                    .allowsHitTesting(!isExtracting)
+                    .animation(transitionAnimation, value: isExtracting)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .transition(.opacity)
-                
-                // BOTTOM SECTION: Primary Action Button & Muted Format Info
-                VStack(spacing: 8) {
-                    PrimaryActionButton(
-                        title: showSaveConfirmation ? "Audio Saved!" : "Save Audio",
-                        icon: showSaveConfirmation ? "checkmark" : nil,
-                        width: 196,
-                        height: 38,
-                        isEnabled: extractedCacheURL != nil,
-                        isSuccess: showSaveConfirmation,
-                        action: promptNativeSaveDialog
-                    )
-                    .keyboardShortcut(.defaultAction)
-                    
-                    // Muted format label
-                    Text("M4A (AAC)")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Theme.textTertiary)
-                        .padding(.bottom, 6)
+                .overlay {
+                    // Extraction In-Progress
+                    VStack(spacing: 12) {
+                        ProgressView(value: extractionProgress, total: 1.0)
+                            .progressViewStyle(.linear)
+                            .frame(width: 280)
+                            .tint(Theme.accent)
+                            .animation(.linear(duration: 0.12), value: extractionProgress)
+                        
+                        Text(extractionProgress > 0 ? "Extracting audio track (\(Int(extractionProgress * 100))%)..." : "Preparing audio track...")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                    .opacity(isExtracting ? 1 : 0)
+                    .allowsHitTesting(isExtracting)
+                    .animation(transitionAnimation, value: isExtracting)
                 }
-                .padding(.bottom, 22)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
+                .clipped()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
     
     // MARK: - File & Extraction Handling
@@ -778,6 +772,7 @@ struct ContentView: View {
         saveConfirmationTask?.cancel()
         showSaveConfirmation = false
         savedURL = nil
+        waveformSamples = []
         isExtracting = true
         extractionProgress = 0.0
         
@@ -786,18 +781,23 @@ struct ContentView: View {
                 let metadata = try await AudioExtractorEngine.shared.inspectVideo(url: url)
                 await MainActor.run {
                     AppSound.playPop()
-                    WindowCoordinator.shared.animateTo(size: extractingSize, duration: 0.32)
-                    withAnimation(.easeInOut(duration: 0.32)) {
-                        self.videoMetadata = metadata
+                    self.studioShownAt = Date()
+                    self.videoMetadata = metadata
+                    // Insert the studio at 0 opacity first, then widen the
+                    // window to the extracting size and fade it in on the next
+                    // runloop so both start on the same animation beat.
+                    DispatchQueue.main.async {
+                        guard self.videoMetadata?.url == metadata.url else { return }
+                        WindowCoordinator.shared.animateTo(size: self.extractingSize, duration: self.transitionDuration)
+                        self.studioVisible = true
                     }
                 }
                 extractToCache(metadata: metadata, format: selectedFormat)
             } catch {
                 await MainActor.run {
-                    WindowCoordinator.shared.animateTo(size: compactSize, duration: 0.3)
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        self.videoMetadata = nil
-                    }
+                    WindowCoordinator.shared.animateTo(size: self.compactSize, duration: self.transitionDuration)
+                    self.studioVisible = false
+                    self.videoMetadata = nil
                     self.isExtracting = false
                     self.errorMessage = "Failed to inspect video: \(error.localizedDescription)"
                     self.showErrorAlert = true
@@ -815,6 +815,7 @@ struct ContentView: View {
         let tempDir = FileManager.default.temporaryDirectory
         let cacheFilename = "audio_extracted_\(UUID().uuidString).\(format.fileExtension)"
         let targetCacheURL = tempDir.appendingPathComponent(cacheFilename)
+        let shownAt = self.studioShownAt
         
         Task {
             do {
@@ -826,21 +827,43 @@ struct ContentView: View {
                     self.extractionProgress = progress
                 }
                 
-                await MainActor.run {
-                    self.extractedCacheURL = targetCacheURL
-                    WindowCoordinator.shared.animateTo(size: self.expandedSize, duration: 0.36)
-                    withAnimation(.easeInOut(duration: 0.36)) {
-                        self.isExtracting = false
+                // Fast authentic waveform analysis directly from the extracted audio
+                let samples = await AudioExtractorEngine.shared.generateWaveform(from: targetCacheURL, count: 48)
+                
+                // Never start the window expansion while the drop-zone → studio
+                // dissolve is still running. Instant extractions used to fire
+                // both transitions on top of each other, which is what made the
+                // layout look like it was jumping around.
+                if let shownAt = shownAt {
+                    let minimumOnScreen: TimeInterval = 0.55
+                    let elapsed = Date().timeIntervalSince(shownAt)
+                    if elapsed < minimumOnScreen {
+                        try? await Task.sleep(nanoseconds: UInt64((minimumOnScreen - elapsed) * 1_000_000_000))
                     }
+                }
+                
+                await MainActor.run {
+                    // Ignore completions that belong to a file we already closed
+                    // or replaced.
+                    guard let current = self.videoMetadata, current.url == metadata.url else { return }
+                    
+                    self.extractedCacheURL = targetCacheURL
+                    self.waveformSamples = samples
+                    
+                    // Grow the window (height only) and cross-fade the
+                    // progress into the player on the same beat.
+                    WindowCoordinator.shared.animateTo(size: self.expandedSize, duration: self.transitionDuration)
+                    self.isExtracting = false
                     self.playerManager.load(url: targetCacheURL)
                 }
             } catch {
                 await MainActor.run {
+                    guard let current = self.videoMetadata, current.url == metadata.url else { return }
+                    
+                    WindowCoordinator.shared.animateTo(size: self.compactSize, duration: self.transitionDuration)
                     self.isExtracting = false
-                    WindowCoordinator.shared.animateTo(size: self.compactSize, duration: 0.3)
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        self.videoMetadata = nil
-                    }
+                    self.studioVisible = false
+                    self.videoMetadata = nil
                     self.errorMessage = "Failed to extract audio: \(error.localizedDescription)"
                     self.showErrorAlert = true
                 }
@@ -899,12 +922,26 @@ struct ContentView: View {
         playerManager.stop()
         saveConfirmationTask?.cancel()
         showSaveConfirmation = false
-        WindowCoordinator.shared.animateTo(size: compactSize, duration: 0.3)
-        withAnimation(.easeInOut(duration: 0.3)) {
+        studioShownAt = nil
+        isExtracting = false
+        
+        // Phase 1: cross-fade the studio back to the drop zone without
+        // touching the window. Shrinking the window while the (larger) studio
+        // is still visible clips its content mid-fade, which is what made the
+        // return feel jerky.
+        studioVisible = false
+        
+        let closingURL = videoMetadata?.url
+        DispatchQueue.main.asyncAfter(deadline: .now() + transitionDuration) {
+            guard !studioVisible, videoMetadata?.url == closingURL else { return }
             videoMetadata = nil
             extractedCacheURL = nil
+            waveformSamples = []
             savedURL = nil
-            isExtracting = false
+            
+            // Phase 2: only now shrink the window, with just the drop zone
+            // visible. Nothing gets clipped, so the resize stays smooth.
+            WindowCoordinator.shared.animateTo(size: compactSize, duration: transitionDuration)
         }
     }
     

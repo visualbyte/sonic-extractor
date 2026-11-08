@@ -66,17 +66,22 @@ EOF
 }
 
 CURRENT_ARCH="$(uname -m)"
-ARCH_TARGET="${1:-$CURRENT_ARCH}"
+ARCH_TARGET="${1:-universal}"
 
-if [ "$ARCH_TARGET" = "arm64" ] || [ "$ARCH_TARGET" = "silicon" ] || [ "$ARCH_TARGET" = "apple-silicon" ]; then
+if [ "$ARCH_TARGET" = "universal" ]; then
+    create_dmg "universal" "${DMG_BASE_NAME}-Universal.dmg"
+    cp "$DIST_DIR/${DMG_BASE_NAME}-Universal.dmg" "$DIST_DIR/${DMG_BASE_NAME}.dmg"
+elif [ "$ARCH_TARGET" = "arm64" ] || [ "$ARCH_TARGET" = "silicon" ] || [ "$ARCH_TARGET" = "apple-silicon" ]; then
     create_dmg "arm64" "${DMG_BASE_NAME}-AppleSilicon-arm64.dmg"
 elif [ "$ARCH_TARGET" = "x86_64" ] || [ "$ARCH_TARGET" = "intel" ]; then
     create_dmg "x86_64" "${DMG_BASE_NAME}-Intel-x86_64.dmg"
 elif [ "$ARCH_TARGET" = "all" ] || [ "$ARCH_TARGET" = "both" ]; then
+    create_dmg "universal" "${DMG_BASE_NAME}-Universal.dmg"
+    cp "$DIST_DIR/${DMG_BASE_NAME}-Universal.dmg" "$DIST_DIR/${DMG_BASE_NAME}.dmg"
     create_dmg "arm64" "${DMG_BASE_NAME}-AppleSilicon-arm64.dmg"
     create_dmg "x86_64" "${DMG_BASE_NAME}-Intel-x86_64.dmg"
 else
-    echo "Usage: ./scripts/create_dmg.sh [arm64|x86_64|all]"
+    echo "Usage: ./scripts/create_dmg.sh [universal|arm64|x86_64|all]"
     exit 1
 fi
 

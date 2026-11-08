@@ -18,7 +18,7 @@ struct AudioExtractorApp: App {
         }
         .windowToolbarStyle(.unified(showsTitle: false))
         .windowResizability(.contentSize)
-        .defaultSize(width: 440, height: 320)
+        .defaultSize(width: 440, height: 370)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Open Video...") {

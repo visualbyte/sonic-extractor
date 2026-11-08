@@ -13,16 +13,17 @@ A fast, lightweight, and native macOS application built with Swift and SwiftUI t
 - **Video Inspection & Preview**:
   - Automatically generates an unletterboxed 16:9 video thumbnail preview.
   - Shows file size, video resolution, duration, and detected audio tracks.
-- **Built-in Audio Player**: Listen to and scrub through your extracted audio immediately inside the app with live waveform visualization.
+- **Built-in Audio Player**: Listen to and scrub through your extracted audio immediately inside the app with a real, per-track waveform sampled directly from the extracted audio.
 - **Tactile Sound Effects**: Custom acoustic cues on video load, file ejection, and export completion.
 - **Consistent Window Geometry**: Guaranteed launch size and smooth animated transition when inspecting media.
 
 ## Installation & First-Time Launch (macOS Gatekeeper)
 
 ### Option 1: Install via DMG (Recommended)
-1. Download the disk image matching your Mac architecture:
-   - **Apple Silicon (M1/M2/M3/M4)**: `SonicExtractor-AppleSilicon-arm64.dmg`
-   - **Intel Macs (x86_64)**: `SonicExtractor-Intel-x86_64.dmg`
+1. Download the disk image:
+   - **Universal (recommended, Apple Silicon + Intel)**: `SonicExtractor-Universal.dmg`
+   - Apple Silicon (M1/M2/M3/M4): `SonicExtractor-AppleSilicon-arm64.dmg`
+   - Intel Macs (x86_64): `SonicExtractor-Intel-x86_64.dmg`
 2. Double-click the DMG to open it, and drag **AudioExtractor** into the **Applications** folder shortcut.
 3. Unmount/eject the DMG.
 

@@ -51,7 +51,9 @@ public final class AudioExtractorEngine: @unchecked Sendable {
     
     // MARK: - Robust Thumbnail Extraction
     private func generateThumbnail(for asset: AVURLAsset, durationSeconds: Double, fileURL: URL) async -> NSImage? {
-        // Tier 1: AVAssetImageGenerator with loose tolerances (fastest for standard videos)
+        // Tier 1: AVAssetImageGenerator. Sample several points through the video
+        // and keep the brightest frame — the first second is often a black
+        // fade-in, which made the header look like an empty black box.
         let videoTracks = (try? await asset.loadTracks(withMediaType: .video)) ?? []
         if !videoTracks.isEmpty {
             let imageGenerator = AVAssetImageGenerator(asset: asset)
@@ -60,13 +62,24 @@ public final class AudioExtractorEngine: @unchecked Sendable {
             imageGenerator.requestedTimeToleranceAfter = .positiveInfinity
             imageGenerator.maximumSize = CGSize(width: 640, height: 360)
             
-            let targetSeconds = min(1.0, max(0.0, durationSeconds * 0.1))
-            let targetTime = CMTime(seconds: targetSeconds, preferredTimescale: 600)
-            if let (cgImage, _) = try? await imageGenerator.image(at: targetTime) {
-                return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+            let fractions: [Double] = [0.12, 0.3, 0.5, 0.7]
+            var best: (image: CGImage, brightness: Double)?
+            
+            for fraction in fractions {
+                let seconds = min(max(0, durationSeconds * fraction), max(0, durationSeconds - 0.1))
+                let targetTime = CMTime(seconds: seconds, preferredTimescale: 600)
+                guard let (cgImage, _) = try? await imageGenerator.image(at: targetTime) else { continue }
+                
+                let brightness = Self.averageBrightness(of: cgImage)
+                if best == nil || brightness > best!.brightness {
+                    best = (cgImage, brightness)
+                }
+                // Bright enough to be representative — stop early.
+                if brightness > 0.18 { break }
             }
-            if let (cgImage, _) = try? await imageGenerator.image(at: .zero) {
-                return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+            
+            if let best = best, best.brightness > 0.02 {
+                return NSImage(cgImage: best.image, size: NSSize(width: best.image.width, height: best.image.height))
             }
         }
         
@@ -85,6 +98,26 @@ public final class AudioExtractorEngine: @unchecked Sendable {
         let icon = NSWorkspace.shared.icon(forFile: fileURL.path)
         icon.size = NSSize(width: 256, height: 256)
         return icon
+    }
+    
+    /// Mean luminance (0…1) of a downsampled copy of the frame, used to avoid
+    /// picking a black fade-in as the header thumbnail.
+    private static func averageBrightness(of cgImage: CGImage) -> Double {
+        let width = 24, height = 24
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return 0 }
+        context.interpolationQuality = .low
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let total = pixels.reduce(0) { $0 + Int($1) }
+        return Double(total) / Double(width * height) / 255.0
     }
     
     private func extractEmbeddedJPEG(from fileURL: URL) -> NSImage? {
@@ -238,14 +271,18 @@ public final class AudioExtractorEngine: @unchecked Sendable {
         session.outputURL = destinationURL
         session.outputFileType = .m4a
         
-        // Progress monitoring task
+        // Progress monitoring task that stays alive through waiting and exporting
         let progressTask = Task {
-            while !Task.isCancelled && session.status == .exporting {
+            while !Task.isCancelled {
+                let status = session.status
+                if status == .completed || status == .failed || status == .cancelled {
+                    break
+                }
                 let progress = Double(session.progress)
                 await MainActor.run {
                     progressHandler(progress)
                 }
-                try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                try? await Task.sleep(nanoseconds: 80_000_000) // 80ms for responsive updates
             }
         }
         
@@ -392,5 +429,67 @@ public final class AudioExtractorEngine: @unchecked Sendable {
                 }
             }
         }
+    }
+    
+    // MARK: - Fast Accurate Audio Waveform Sampling
+    public func generateWaveform(from url: URL, count: Int = 48) async -> [CGFloat] {
+        return await Task.detached(priority: .userInitiated) { () -> [CGFloat] in
+            do {
+                let file = try AVAudioFile(forReading: url)
+                let totalFrames = file.length
+                guard totalFrames > 0 else {
+                    return Array(repeating: 0.16, count: count)
+                }
+                
+                let windowSize: AVAudioFrameCount = 4096
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: windowSize) else {
+                    return Array(repeating: 0.16, count: count)
+                }
+                
+                let channelCount = Int(file.processingFormat.channelCount)
+                var rawAmplitudes: [Float] = []
+                
+                for i in 0..<count {
+                    let targetFrame = max(0, min(totalFrames - Int64(windowSize), Int64(Double(i) / Double(count) * Double(totalFrames))))
+                    file.framePosition = targetFrame
+                    try file.read(into: buffer, frameCount: windowSize)
+                    
+                    if let channelData = buffer.floatChannelData {
+                        let frameLength = Int(buffer.frameLength)
+                        if frameLength > 0 {
+                            var sum: Float = 0
+                            for c in 0..<channelCount {
+                                let samples = channelData[c]
+                                for s in 0..<frameLength {
+                                    let val = samples[s]
+                                    sum += val * val
+                                }
+                            }
+                            let rms = sqrt(sum / Float(frameLength * channelCount))
+                            rawAmplitudes.append(rms)
+                        } else {
+                            rawAmplitudes.append(0)
+                        }
+                    } else {
+                        rawAmplitudes.append(0)
+                    }
+                }
+                
+                let maxAmp = rawAmplitudes.max() ?? 1.0
+                let minBarHeight: CGFloat = 0.16
+                
+                if maxAmp > 0.0001 {
+                    return rawAmplitudes.map { amp in
+                        let normalized = CGFloat(amp / maxAmp)
+                        let perceptual = sqrt(normalized) // Natural acoustic scaling
+                        return max(minBarHeight, min(1.0, perceptual))
+                    }
+                } else {
+                    return Array(repeating: minBarHeight, count: count)
+                }
+            } catch {
+                return Array(repeating: 0.16, count: count)
+            }
+        }.value
     }
 }
